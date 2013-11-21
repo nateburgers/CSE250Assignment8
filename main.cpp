@@ -23,6 +23,26 @@ using namespace std;
 typedef unsigned int uint;
 typedef vector<vector<int>*> matrix;
 
+void print_vector(const vector<int> &v)
+{
+    cout << "[" << v[0];
+    for (size_t i=1; i<v.size(); i++) {
+        cout << "," << v[i];
+    }
+    cout << "]" << endl;
+}
+
+void write_vector(const vector<int> &v, const string &fileName)
+{
+    ofstream fileStream;
+    fileStream.open(fileName);
+    fileStream << v[0];
+    for (size_t i=1; i<v.size(); i++) {
+        fileStream << " " << v[i];
+    }
+    fileStream.close();
+}
+
 vector<string> *parse(string &input, size_t idx, vector<string> *builder)
 {
     if (idx == input.size()) return builder;
@@ -49,12 +69,12 @@ vector<int> *parseInts(string &input)
     vector<int> *result = new vector<int>();
     vector<string> *parsedInput = parse(input);
     for(size_t i=0; i<parsedInput->size(); i++) {
-        result->push_back(stoi(parsedInput->at(i)));
+        result->push_back(stoi((*parsedInput)[i]));
     }
     return result;
 }
 
-vector<vector<int>*> *parseIntFile(string &fileName)
+vector<vector<int>*> *parseIntFile(const string &fileName)
 {
     vector<vector<int>*> *result = new vector<vector<int>*>();
     ifstream file(fileName);
@@ -213,8 +233,8 @@ maybe<delayed_index<T>*> binary_search(const comparator<T> &compare, const vecto
 
     switch (result) {
     case comparison_result_equal: return just<delayed_index<T>*>(new delayed_index<T>(middleIdx, &vec));
-    case comparison_result_less: return binary_search(compare, lower<T>(vec));
-    case comparison_result_more: return binary_search(compare, upper<T>(vec));
+    case comparison_result_less: return binary_search(compare, upper<T>(vec));
+    case comparison_result_more: return binary_search(compare, lower<T>(vec));
     default: return nothing<delayed_index<T>*>();
     }
 }
@@ -230,20 +250,22 @@ maybe<delayed_index<T>*> first_satisfying(const comparator<T> &compare, const ve
     switch (result) {
     case comparison_result_equal: return first_satisfying<T>(compare, *lower(vec))
                 || just<delayed_index<T>*>(new delayed_index<T>(middleIdx, &vec));
-    case comparison_result_less: return first_satisfying<T>(compare, *lower(vec));
-    case comparison_result_more: return first_satisfying<T>(compare, *upper(vec));
+    case comparison_result_less: return first_satisfying<T>(compare, *upper(vec));
+    case comparison_result_more: return first_satisfying<T>(compare, *lower(vec));
     }
 }
 
 bool contains(const vector<int> &m, int i)
 {
     size_t middleIdx = m.size() / 2;
+    if (m.size() <= 1 && m[middleIdx] != i) return false;
+
     if (m[middleIdx] == i) {
         return true;
-    } else if (m[middleIdx] < i) {
-        return contains(vector<int>(m.begin(), m.end() - middleIdx), i);
     } else if (m[middleIdx] > i) {
-        return contains(vector<int>(m.begin() + middleIdx, m.end()), i);
+        return contains(*lower<int>(m), i);
+    } else if (m[middleIdx] < i) {
+        return contains(*upper<int>(m), i);
     } else {
         return false;
     }
@@ -257,7 +279,9 @@ vector<int> *intersection(const vector<int> &a, const vector<int> &b)
 {
     vector<int> *result = new vector<int>();
     for (size_t i=0; i<a.size(); i++) {
-        if (contains(b, a[i])) result->push_back(a[i]);
+        if (contains(b, a[i])) {
+            result->push_back(a[i]);
+        }
     }
     return result;
 }
@@ -331,15 +355,6 @@ index_queue *prioritize(const vector<vector<int>*> &sets)
     return queue;
 }
 
-void print_vector(const vector<int> &v)
-{
-    cout << "[" << v[0];
-    for (size_t i=1; i<v.size(); i++) {
-        cout << "," << v[i];
-    }
-    cout << "]" << endl;
-}
-
 vector<int> *fast_unify(const vector<vector<int>*> &sets)
 {
     vector<int> *result = new vector<int>();
@@ -390,39 +405,74 @@ enum RETURN_STATUS {
     RETURN_EXIT
 };
 
+typedef RETURN_STATUS (*command)(const string &);
+
 struct named_command {
     string command_name;
-    RETURN_STATUS (*command)(const vector<vector<int>*> &sets);
+    command c;
 };
 
 /*
  * Commands
  */
-RETURN_STATUS exit(const vector<vector<int>*> &sets)
-{
+static vector<vector<int>*> *global_database;
+RETURN_STATUS exit(const string &input) {
     return RETURN_EXIT;
 }
+RETURN_STATUS loaddb(const string &input) {
+    global_database = parseIntFile(input);
+    sortMatrix(*global_database);
+    for (size_t i=0; i<global_database->size(); i++) {
+        print_vector(*(*global_database)[i]);
+    }
+    return RETURN_SUCCESS;
+}
+RETURN_STATUS slowintersect(const string &input) {
+    vector<int> *intersect = intersection(*global_database);
+    print_vector(*intersect);
+    if (input != "") write_vector(*intersect, input);
+    return RETURN_SUCCESS;
+}
 
-const named_command commands[] = {
-    { "exit", exit }
-};
+RETURN_STATUS slowunion(const string &input) {
+    vector<int> *union_vector = toVector(*unify(*mapToSet(*global_database)));
+    print_vector(*union_vector);
+    if (input != "") write_vector(*union_vector, input);
+    return RETURN_SUCCESS;
+}
+
+RETURN_STATUS fastunion(const string &input) {
+    vector<int> *union_vector = fast_unify(*global_database);
+    print_vector(*union_vector);
+    if (input != "") write_vector(*union_vector, input);
+    return RETURN_SUCCESS;
+}
 
 int run() {
+    map<string,command> command_map;
+    command_map["exit"] = exit;
+    command_map["loaddb"] = loaddb;
+    command_map["slowintersect"] = slowintersect;
+    command_map["slowunion"] = slowunion;
+    command_map["fastunion"] = fastunion;
 
     RETURN_STATUS return_status = RETURN_SUCCESS;
     while (return_status != RETURN_EXIT) {
-
+        cout << "> ";
+        string command;
+        getline(cin, command);
+        const vector<string> *commands = parse(command);
+        if (commands->size() < 2) {
+            return_status = command_map[(*commands)[0]]("");
+        } else {
+            return_status = command_map[(*commands)[0]]((*commands)[1]);
+        }
     }
     return EXIT_SUCCESS;
 }
 
 int main(int argc, const char * argv[])
 {
-    string filePath = "/Users/nate/Documents/Homework/Assignment8-3/test.txt";
-    matrix *ints = parseIntFile(filePath);
-    sortMatrix(*ints);
-
-    vector<int> *result = fast_unify(*ints);
-    print_vector(*result);
+    run();
     return 0;
 }
